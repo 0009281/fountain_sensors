@@ -15,6 +15,7 @@
 #define SDA_pin  21
 
 #define LED_PIN            2
+#define SKETCH_VERSION "1.0.30"
 
 SHTSensor sht(SHTSensor::SHT3X);
 
@@ -26,6 +27,8 @@ unsigned long check_for_the_new_frimware_millis;
 
 
 void setup() {
+  Serial.print("Firmware version: ");
+  Serial.println(SKETCH_VERSION);
   Serial.begin(115200); // Starts the serial communication
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
@@ -129,7 +132,7 @@ Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert
     // on much longer than it will be off. Other pins than LED_BUILTIN may be used. The second
     // value is used to put the LED on. If the LED is on with HIGH, that value should be passed
     httpUpdate.setLedPin(LED_PIN, LOW);
-    t_httpUpdate_return ret = httpUpdate.update(Secure_client, "http://server/file.bin");
+    t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
     check_for_the_new_frimware_millis-millis();
   }
 
