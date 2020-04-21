@@ -27,9 +27,9 @@ unsigned long check_for_the_new_frimware_millis;
 
 
 void setup() {
+  Serial.begin(115200); // Starts the serial communication
   Serial.print("Firmware version: ");
   Serial.println(SKETCH_VERSION);
-  Serial.begin(115200); // Starts the serial communication
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(LED_PIN, OUTPUT);
