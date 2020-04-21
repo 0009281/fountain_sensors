@@ -15,7 +15,7 @@
 #define SDA_pin  21
 
 #define LED_PIN            2
-#define SKETCH_VERSION "1.0.30"
+#define SKETCH_VERSION "1.0.31"
 
 SHTSensor sht(SHTSensor::SHT3X);
 
