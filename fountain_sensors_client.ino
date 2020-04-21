@@ -133,7 +133,7 @@ Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert
     // value is used to put the LED on. If the LED is on with HIGH, that value should be passed
     httpUpdate.setLedPin(LED_PIN, LOW);
     t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
-    check_for_the_new_frimware_millis-millis();
+    check_for_the_new_frimware_millis=millis();
   }
 
 
