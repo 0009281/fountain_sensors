@@ -4,6 +4,7 @@
 #include "wifi_details.h"
 #include <ArduinoOTA.h>
 #include <HTTPUpdate.h>
+#include <HTTPClient.h>
 
 #define US_ROUNDTRIP_CM 57      // Microseconds (uS) it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
 // Ultrasonic sensor
@@ -20,7 +21,7 @@
 SHTSensor sht(SHTSensor::SHT3X);
 
 WiFiClientSecure Secure_client;
-HttpClient client_github_access;
+HTTPClient client_github_access;
 int duration;
 int distance;
 unsigned long check_for_the_new_frimware_millis;
@@ -35,8 +36,8 @@ void setup() {
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
-  
-    // delete old config
+
+  // delete old config
   WiFi.disconnect(true);
   // Examples of different ways to register wifi events
   WiFi.onEvent(WiFiEvent);
@@ -45,34 +46,34 @@ void setup() {
   Serial.println("Wait for WiFi... ");
 
   ArduinoOTA
-    .onStart([]() {
-      String type;
-      if (ArduinoOTA.getCommand() == U_FLASH)
-        type = "sketch";
-      else // U_SPIFFS
-        type = "filesystem";
-      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type);
-    })
-    .onEnd([]() {
-      Serial.println("\nEnd");
-    })
-    .onProgress([](unsigned int progress, unsigned int total) {
-      //Serial.printf("Progress: %u%%\r", (progress / (total / 100))); led_status_green_blink();
-    })
-    .onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
-    });
+  .onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH)
+      type = "sketch";
+    else // U_SPIFFS
+      type = "filesystem";
+    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+    Serial.println("Start updating " + type);
+  })
+  .onEnd([]() {
+    Serial.println("\nEnd");
+  })
+  .onProgress([](unsigned int progress, unsigned int total) {
+    //Serial.printf("Progress: %u%%\r", (progress / (total / 100))); led_status_green_blink();
+  })
+  .onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
 
   ArduinoOTA.begin();
 
-  
-  
+
+
   Wire.begin(SDA_pin, SCL_pin);
 
   if (sht.init()) {
@@ -90,59 +91,78 @@ void loop() {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
 
-// Sets the trigPin on HIGH state for 10 micro seconds
-digitalWrite(trigPin, HIGH);
-delayMicroseconds(10);
-digitalWrite(trigPin, LOW);
+  // Sets the trigPin on HIGH state for 10 micro seconds
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
 
-// Reads the echoPin, returns the sound wave travel time in microseconds
-duration = pulseIn(echoPin, HIGH);
+  // Reads the echoPin, returns the sound wave travel time in microseconds
+  duration = pulseIn(echoPin, HIGH);
 
-// Calculating the distance
-distance= duration*0.034/2;
-
-// Prints the distance on the Serial Monitor
-Serial.print("Distance: ");
-Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
-//Serial.println(distance); // Convert uS to centimeters.);
+  // Calculating the distance
+  distance = duration * 0.034 / 2;
+/*
+  // Prints the distance on the Serial Monitor
+  Serial.print("Distance: ");
+  Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
+  //Serial.println(distance); // Convert uS to centimeters.);
 
 
   if (sht.readSample()) {
-      Serial.print("SHT:\n");
-      Serial.print("  RH: ");
-      Serial.print(sht.getHumidity(), 2);
-      Serial.print("\n");
-      Serial.print("  T:  ");
-      Serial.print(sht.getTemperature(), 2);
-      Serial.print("\n");
+    Serial.print("SHT:\n");
+    Serial.print("  RH: ");
+    Serial.print(sht.getHumidity(), 2);
+    Serial.print("\n");
+    Serial.print("  T:  ");
+    Serial.print(sht.getTemperature(), 2);
+    Serial.print("\n");
   } else {
-      Serial.print("Error in readSample()\n");
+    Serial.print("Error in readSample()\n");
   }
 
+*/
 
-  Serial.println("GitHub version file:");
-  if (millis()-check_for_the_new_frimware_millis>30000) {
-    client_github_access.get("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h");
-    while (client_github_access.available()) {
-    char c = client.read();
-    Serial.print(c);
-  }
+  if (millis() - check_for_the_new_frimware_millis > 10000) {
+    //    client_github_access.get("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h");
+    /*while (client_github_access.available()) {
+      char c = client.read();
+      Serial.print(c);
+      }
+    */
+    HTTPClient http;
+    Serial.println("GitHub version file:");
+    http.begin("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h"); //Specify the URL
+    int httpCode = http.GET();                                        //Make the request
+
+    if (httpCode > 0) { //Check for the returning code
+
+      String payload = http.getString();
+      if (payload==SKETCH_VERSION) Serial.println("EQUAL!!!!!!!!!!!!!!!!!!!!!!!");
+      Serial.println(httpCode);
+      Serial.println(payload);
+
+    
+    
+    
+    }
+
+    else {
+      Serial.println("Error on HTTP request");
+    }
+
+    http.end(); //Free the resources
+
     Secure_client.setCACert(rootCACertificate);
     // Reading data over SSL may be slow, use an adequate timeout
-    Secure_client.setTimeout(12000/1000);
+    Secure_client.setTimeout(12000 / 1000);
 
-    // The line below is optional. It can be used to blink the LED on the board during flashing
-    // The LED will be on during download of one buffer of data from the network. The LED will
-    // be off during writing that buffer to flash
-    // On a good connection the LED should flash regularly. On a bad connection the LED will be
-    // on much longer than it will be off. Other pins than LED_BUILTIN may be used. The second
-    // value is used to put the LED on. If the LED is on with HIGH, that value should be passed
+    
     httpUpdate.setLedPin(LED_PIN, LOW);
     //t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
-    check_for_the_new_frimware_millis=millis();
+    check_for_the_new_frimware_millis = millis();
   }
 
 
 
-delay(1000);
+  delay(1000);
 }
