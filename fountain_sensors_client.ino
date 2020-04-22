@@ -20,6 +20,7 @@
 SHTSensor sht(SHTSensor::SHT3X);
 
 WiFiClientSecure Secure_client;
+HttpClient client_github_access;
 int duration;
 int distance;
 unsigned long check_for_the_new_frimware_millis;
@@ -119,8 +120,13 @@ Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert
   }
 
 
-
+  Serial.println("GitHub version file:");
   if (millis()-check_for_the_new_frimware_millis>30000) {
+    client_github_access.get("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h");
+    while (client_github_access.available()) {
+    char c = client.read();
+    Serial.print(c);
+  }
     Secure_client.setCACert(rootCACertificate);
     // Reading data over SSL may be slow, use an adequate timeout
     Secure_client.setTimeout(12000/1000);
@@ -132,7 +138,7 @@ Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert
     // on much longer than it will be off. Other pins than LED_BUILTIN may be used. The second
     // value is used to put the LED on. If the LED is on with HIGH, that value should be passed
     httpUpdate.setLedPin(LED_PIN, LOW);
-    t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
+    //t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
     check_for_the_new_frimware_millis=millis();
   }
 
