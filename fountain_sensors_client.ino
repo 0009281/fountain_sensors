@@ -6,6 +6,7 @@
 #include <HTTPUpdate.h>
 #include <HTTPClient.h>
 
+#define CHECK_FOR_NEW_FIRMWARE_FREQUENCE_SECONDS 60 //check for the new firmware every 24 hours
 #define US_ROUNDTRIP_CM 57      // Microseconds (uS) it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
 // Ultrasonic sensor
 #define trigPin  13
@@ -30,7 +31,7 @@ unsigned long check_for_the_new_frimware_millis;
 
 void setup() {
   Serial.begin(115200); // Starts the serial communication
-  Serial.print("Firmware version: ");
+  Serial.print("Current firmware version: ");
   Serial.println(SKETCH_VERSION);
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
@@ -122,43 +123,30 @@ void loop() {
 
 */
 
-  if (millis() - check_for_the_new_frimware_millis > 10000) {
-    //    client_github_access.get("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h");
-    /*while (client_github_access.available()) {
-      char c = client.read();
-      Serial.print(c);
-      }
-    */
-    HTTPClient http;
-    Serial.println("GitHub version file:");
+  if (millis() - check_for_the_new_frimware_millis > 1000*CHECK_FOR_NEW_FIRMWARE_FREQUENCE_SECONDS) {
+    HTTPClient http;    
     http.begin("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h"); //Specify the URL
     int httpCode = http.GET();                                        //Make the request
-
     if (httpCode > 0) { //Check for the returning code
-
       String payload = http.getString();
-      if (payload==SKETCH_VERSION) Serial.println("EQUAL!!!!!!!!!!!!!!!!!!!!!!!");
-      Serial.println(httpCode);
+      Serial.print("GitHub Sketch version: ");
       Serial.println(payload);
-
-    
-    
-    
+      if (payload!=SKETCH_VERSION) {
+        Secure_client.setCACert(rootCACertificate);
+        // Reading data over SSL may be slow, use an adequate timeout
+        Secure_client.setTimeout(12000 / 1000);
+        httpUpdate.setLedPin(LED_PIN, LOW);
+        t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
+      }
     }
-
     else {
-      Serial.println("Error on HTTP request");
+      Serial.print("Error on HTTP request: ");
+      Serial.println(httpCode);
+      Serial.println("Unable to update the firmware from GitHub: https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
     }
 
     http.end(); //Free the resources
 
-    Secure_client.setCACert(rootCACertificate);
-    // Reading data over SSL may be slow, use an adequate timeout
-    Secure_client.setTimeout(12000 / 1000);
-
-    
-    httpUpdate.setLedPin(LED_PIN, LOW);
-    //t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
     check_for_the_new_frimware_millis = millis();
   }
 
