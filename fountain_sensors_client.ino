@@ -1,6 +1,5 @@
 #include <Wire.h>
 #include "SHTSensor.h"
-#include "github.h"
 #include "wifi_details.h"
 #include <ArduinoOTA.h>
 #include <HTTPUpdate.h>
@@ -32,21 +31,18 @@
 
 SHTSensor sht(SHTSensor::SHT3X);
 
-WiFiClientSecure Secure_client;
-HTTPClient client_github_access;
 unsigned int duration, distance;
 unsigned long check_for_the_new_frimware_millis;
 uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
 uint8_t i;
-bool loadEepromFailed = false;
+bool loadEepromFailed = false, emergency_flooding = false;
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
-bool oldDeviceConnected = false;
 uint32_t value = 0;
 //std::string value1="                                              ";
-std::string command_to_realy_din_rail_block;
+std::string command_to_realy_din_rail_block="Disable Fountain";
 
 WiFiServer wifiServer(80);
 
@@ -58,17 +54,27 @@ WiFiServer wifiServer(80);
 
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
+      digitalWrite(LED_PIN, LOW);
       deviceConnected = true;
-      BLEDevice::startAdvertising();
     };
 
     void onDisconnect(BLEServer* pServer) {
+      digitalWrite(LED_PIN, HIGH);
       deviceConnected = false;
     }
 };
 
+void flash_led(uint8_t number_times)
+{
+  for (uint8_t j=0;j<number_times; j++) {
+    delay(100);
+    digitalWrite(LED_PIN, HIGH);
+    delay(100);
+    digitalWrite(LED_PIN, LOW);
+  }
+}
 
-
+/*
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
@@ -84,7 +90,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       }
     }
 };
-
+*/
 
 
 void setup() {
@@ -94,7 +100,6 @@ void setup() {
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
   pinMode(BUTTON, INPUT);
   pinMode(GARLAND_PIN, OUTPUT);
   digitalWrite(GARLAND_PIN, LOW);
@@ -109,7 +114,7 @@ void setup() {
     if (isnan(distance_mm_to_monitor)) loadEepromFailed = true;
     Serial.print("Average distance for monitoring loaded from EEPROM is: ");
     Serial.println(distance_mm_to_monitor);
- }
+  }
 
   
   // START WIFI INIT  
@@ -155,23 +160,21 @@ void setup() {
   });
 
   ArduinoOTA.begin();
-
-
+  wifiServer.begin();
 
   Wire.begin(SDA_pin, SCL_pin);
 
   if (sht.init()) {
-    Serial.print("init(): success\n");
+    Serial.print("SHT85 init(): success\n");
   } else {
-    Serial.print("init(): failed\n");
+    Serial.print("SHT85 init(): failed\n");
   }
   sht.setAccuracy(SHTSensor::SHT_ACCURACY_MEDIUM); // only supported by SHT3x
 
-  wifiServer.begin();
+  
 
-    // Create the BLE Device
+ // Create the BLE Device
   BLEDevice::init("ESP32");
-
   // Create the BLE Server
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -188,10 +191,8 @@ void setup() {
                       BLECharacteristic::PROPERTY_INDICATE
                     );
 
-  pCharacteristic->setCallbacks(new MyCallbacks());
-
-  
-  pCharacteristic->setValue("Hello World says Neil");
+//  pCharacteristic->setCallbacks(new MyCallbacks());
+  pCharacteristic->setValue("Disable Fountain");
 
 
   // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
@@ -204,11 +205,13 @@ void setup() {
   // Start advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
+  pAdvertising->setScanResponse(true);
   pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
   Serial.println("Waiting a client connection to notify...");
+  digitalWrite(LED_PIN, HIGH);
+
 
 }
 
@@ -235,19 +238,32 @@ void loop() {
   //Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
   distance_mm = (int)(duration + 5.7 / 2)/5.7;
   Serial.println(distance_mm );
-  if (distance_mm_to_monitor - distance_mm > 30) Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
 
+  if(deviceConnected) {
 
+    if (distance_mm_to_monitor - distance_mm > 30) {
+      Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
+      command_to_realy_din_rail_block = "Disable Fountain";
+      pCharacteristic->setValue(command_to_realy_din_rail_block);
+      pCharacteristic->notify();
+      emergency_flooding = true;
+      flash_led(3);
+    } else {
+      pCharacteristic->setValue(command_to_realy_din_rail_block);
+      pCharacteristic->notify();
+      emergency_flooding = false;
+      flash_led(1);
+    }
+  }
+  
   if (sht.readSample()) {
     Serial.print("Humidity: "); 
-    Serial.println(sht.getHumidity(), 2);
-    Serial.print("Temperature:  ");
+    Serial.print(sht.getHumidity(), 2);
+    Serial.print("%  Temperature:  ");
     Serial.println(sht.getTemperature(), 2);
   } else {
     Serial.println("Error in readSample() from the SENSIRION SHT85 Sensor");
   }
-
-
 
 
  WiFiClient client = wifiServer.available();
@@ -269,18 +285,15 @@ void loop() {
     //Serial.println(command_to_run);
     if (command_to_run=="Enable Fountain") {
       Serial.println("Enable Fountain");
-      if (deviceConnected) {
-        pCharacteristic->setValue("Enable Fountain\0");
-        pCharacteristic->notify();
-      }
+      command_to_realy_din_rail_block = "Enable Fountain";
+    
+   //     pCharacteristic->setValue("Enable Fountain\0");
+     //   pCharacteristic->notify();
+      //}
     }
     else if (command_to_run=="Disable Fountain") {
       Serial.println("Disable Fountain");
-      if (deviceConnected) {
-        pCharacteristic->setValue("Disable Fountain\0");
-        pCharacteristic->notify();
-      }
-      
+      command_to_realy_din_rail_block = "Disable Fountain";
     }
     else if (command_to_run=="Enable Garland") {
       Serial.println("Enable Garland");
@@ -295,24 +308,7 @@ void loop() {
     }
   } //if client at port 1111
 
-    // notify changed value
-  if (deviceConnected) {
-    pCharacteristic->setValue("PING WDT");
-    pCharacteristic->notify();
-  }
-  else digitalWrite(LED_PIN, HIGH);
 
-  if (!deviceConnected && oldDeviceConnected) {
-    delay(500); // give the bluetooth stack the chance to get things ready
-    pServer->startAdvertising(); // restart advertising
-    Serial.println("start advertising");
-    oldDeviceConnected = deviceConnected;
-  }
-    // connecting
-    if (deviceConnected && !oldDeviceConnected) {
-        // do stuff here on connecting
-        oldDeviceConnected = deviceConnected;
-    }
  //calculate average distance and save it to the EEPROM
  if (!digitalRead(BUTTON)) {
    if (i<10) {
@@ -321,6 +317,9 @@ void loop() {
       distance_mm_to_monitor = (int)(distance_mm_average / 10);
       EEPROM.put(0, distance_mm_to_monitor);
       EEPROM.commit();
+      delay(3000);
+      flash_led(2);
+      delay(1000);
       Serial.print("Average distance to monitor: ");
       Serial.println(distance_mm_to_monitor);
      }
