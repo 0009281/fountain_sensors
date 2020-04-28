@@ -5,9 +5,17 @@
 #include <ArduinoOTA.h>
 #include <HTTPUpdate.h>
 #include <HTTPClient.h>
+#include <ESPmDNS.h>
+#include "EEPROM.h"
 
-#define CHECK_FOR_NEW_FIRMWARE_FREQUENCE_SECONDS 60 //check for the new firmware every 24 hours
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+#define CHECK_FOR_NEW_FIRMWARE_FREQUENCE_SECONDS 30 //check for the new firmware every 24 hours
 #define US_ROUNDTRIP_CM 57      // Microseconds (uS) it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
+#define US_ROUNDTRIP_MM 5.7      // Microseconds (uS) it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
 // Ultrasonic sensor
 #define trigPin  13
 #define echoPin  14
@@ -16,16 +24,66 @@
 #define SCL_pin  22
 #define SDA_pin  21
 
-#define LED_PIN            2
-#define SKETCH_VERSION "1.0.31"
+#define BUTTON             0 //onboard button
+#define LED_PIN            2 //onboard led
+#define GARLAND_PIN        4 //external relay control pin
+#define EEPROM_SIZE        2
+#define SKETCH_VERSION "1.0.33"
 
 SHTSensor sht(SHTSensor::SHT3X);
 
 WiFiClientSecure Secure_client;
 HTTPClient client_github_access;
-int duration;
-int distance;
+unsigned int duration, distance;
 unsigned long check_for_the_new_frimware_millis;
+uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
+uint8_t i;
+bool loadEepromFailed = false;
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic = NULL;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint32_t value = 0;
+//std::string value1="                                              ";
+std::string command_to_realy_din_rail_block;
+
+WiFiServer wifiServer(80);
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      BLEDevice::startAdvertising();
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+    }
+};
+
+
+
+class MyCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string value = pCharacteristic->getValue();
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));      
+      if (value.length() > 0) {
+        Serial.println("*********");
+        Serial.print("New value: ");
+        for (int i = 0; i < value.length(); i++)
+          Serial.print(value[i]);
+          command_to_realy_din_rail_block=value;
+        Serial.println();
+        Serial.println("*********");
+      }
+    }
+};
 
 
 
@@ -37,7 +95,24 @@ void setup() {
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  pinMode(BUTTON, INPUT);
+  pinMode(GARLAND_PIN, OUTPUT);
+  digitalWrite(GARLAND_PIN, LOW);
+  //check for EEPROM corruption
+  if ((!EEPROM.begin(EEPROM_SIZE))) {
+    Serial.println("Failed to initialise EEPROM"); 
+    loadEepromFailed = true;
+  }
+  else {
+    Serial.println("OK to initialise EEPROM"); 
+    EEPROM.get(0, distance_mm_to_monitor);
+    if (isnan(distance_mm_to_monitor)) loadEepromFailed = true;
+    Serial.print("Average distance for monitoring loaded from EEPROM is: ");
+    Serial.println(distance_mm_to_monitor);
+ }
 
+  
+  // START WIFI INIT  
   // delete old config
   WiFi.disconnect(true);
   // Examples of different ways to register wifi events
@@ -45,6 +120,14 @@ void setup() {
   WiFi.begin(ssid, password);
   WiFi.setAutoReconnect(true);
   Serial.println("Wait for WiFi... ");
+  //start Bonjour (mDNS) responder
+  if (MDNS.begin("esp32_fountain")) {
+    MDNS.setInstanceName("ESP32 Fountain Sensor Board");
+    Serial.println("mDNS responder started");
+    MDNS.addService("http", "tcp", 1111);
+  }
+  else Serial.println("Error setting up MDNS responder!");
+
 
   ArduinoOTA
   .onStart([]() {
@@ -83,15 +166,59 @@ void setup() {
     Serial.print("init(): failed\n");
   }
   sht.setAccuracy(SHTSensor::SHT_ACCURACY_MEDIUM); // only supported by SHT3x
+
+  wifiServer.begin();
+
+    // Create the BLE Device
+  BLEDevice::init("ESP32");
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_READ   |
+                      BLECharacteristic::PROPERTY_WRITE  |
+                      BLECharacteristic::PROPERTY_NOTIFY |
+                      BLECharacteristic::PROPERTY_INDICATE
+                    );
+
+  pCharacteristic->setCallbacks(new MyCallbacks());
+
+  
+  pCharacteristic->setValue("Hello World says Neil");
+
+
+  // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
+  // Create a BLE Descriptor
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  Serial.println("Waiting a client connection to notify...");
+
 }
 
 void loop() {
 
   ArduinoOTA.handle();
+
   // Clears the trigPin
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
-
   // Sets the trigPin on HIGH state for 10 micro seconds
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
@@ -102,54 +229,109 @@ void loop() {
 
   // Calculating the distance
   distance = duration * 0.034 / 2;
-/*
+
   // Prints the distance on the Serial Monitor
-  Serial.print("Distance: ");
-  Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
-  //Serial.println(distance); // Convert uS to centimeters.);
+  Serial.print("Distance in mm: ");
+  //Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
+  distance_mm = (int)(duration + 5.7 / 2)/5.7;
+  Serial.println(distance_mm );
+  if (distance_mm_to_monitor - distance_mm > 30) Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
 
 
   if (sht.readSample()) {
-    Serial.print("SHT:\n");
-    Serial.print("  RH: ");
-    Serial.print(sht.getHumidity(), 2);
-    Serial.print("\n");
-    Serial.print("  T:  ");
-    Serial.print(sht.getTemperature(), 2);
-    Serial.print("\n");
+    Serial.print("Humidity: "); 
+    Serial.println(sht.getHumidity(), 2);
+    Serial.print("Temperature:  ");
+    Serial.println(sht.getTemperature(), 2);
   } else {
-    Serial.print("Error in readSample()\n");
+    Serial.println("Error in readSample() from the SENSIRION SHT85 Sensor");
   }
 
-*/
 
-  if (millis() - check_for_the_new_frimware_millis > 1000*CHECK_FOR_NEW_FIRMWARE_FREQUENCE_SECONDS) {
-    HTTPClient http;    
-    http.begin("https://raw.githubusercontent.com/0009281/fountain_sensors/master/version.h"); //Specify the URL
-    int httpCode = http.GET();                                        //Make the request
-    if (httpCode > 0) { //Check for the returning code
-      String payload = http.getString();
-      Serial.print("GitHub Sketch version: ");
-      Serial.println(payload);
-      if (payload!=SKETCH_VERSION) {
-        Secure_client.setCACert(rootCACertificate);
-        // Reading data over SSL may be slow, use an adequate timeout
-        Secure_client.setTimeout(12000 / 1000);
-        httpUpdate.setLedPin(LED_PIN, LOW);
-        t_httpUpdate_return ret = httpUpdate.update(Secure_client, "https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
+
+
+ WiFiClient client = wifiServer.available();
+ 
+  if (client) {
+     String command_to_run;
+     while (client.connected()) {
+ 
+      while (client.available()>0) {
+        char c = client.read(); 
+        command_to_run += c;
+      }
+      delay(10);
+    }
+ 
+    client.stop();
+    Serial.println("Client disconnected");
+    Serial.print("Command to execute: ");
+    //Serial.println(command_to_run);
+    if (command_to_run=="Enable Fountain") {
+      Serial.println("Enable Fountain");
+      if (deviceConnected) {
+        pCharacteristic->setValue("Enable Fountain\0");
+        pCharacteristic->notify();
       }
     }
-    else {
-      Serial.print("Error on HTTP request: ");
-      Serial.println(httpCode);
-      Serial.println("Unable to update the firmware from GitHub: https://raw.githubusercontent.com/0009281/fountain_sensors/master/fountain_sensors_client.ino.nodemcu-32s.bin");
+    else if (command_to_run=="Disable Fountain") {
+      Serial.println("Disable Fountain");
+      if (deviceConnected) {
+        pCharacteristic->setValue("Disable Fountain\0");
+        pCharacteristic->notify();
+      }
+      
     }
+    else if (command_to_run=="Enable Garland") {
+      Serial.println("Enable Garland");
+      digitalWrite(GARLAND_PIN, HIGH);
+    }
+    else if (command_to_run=="Disable Garland") {
+      Serial.println("Disable Garland");
+      digitalWrite(GARLAND_PIN, LOW);
+    }
+    else {
+      Serial.println("Unknown command");
+    }
+  } //if client at port 1111
 
-    http.end(); //Free the resources
-
-    check_for_the_new_frimware_millis = millis();
+    // notify changed value
+  if (deviceConnected) {
+    pCharacteristic->setValue("PING WDT");
+    pCharacteristic->notify();
   }
+  else digitalWrite(LED_PIN, HIGH);
 
+  if (!deviceConnected && oldDeviceConnected) {
+    delay(500); // give the bluetooth stack the chance to get things ready
+    pServer->startAdvertising(); // restart advertising
+    Serial.println("start advertising");
+    oldDeviceConnected = deviceConnected;
+  }
+    // connecting
+    if (deviceConnected && !oldDeviceConnected) {
+        // do stuff here on connecting
+        oldDeviceConnected = deviceConnected;
+    }
+ //calculate average distance and save it to the EEPROM
+ if (!digitalRead(BUTTON)) {
+   if (i<10) {
+     distance_mm_average += distance_mm;
+     if (i==9) { 
+      distance_mm_to_monitor = (int)(distance_mm_average / 10);
+      EEPROM.put(0, distance_mm_to_monitor);
+      EEPROM.commit();
+      Serial.print("Average distance to monitor: ");
+      Serial.println(distance_mm_to_monitor);
+     }
+     i++;
+   }
+ }
+ else {
+  i = 0;
+  distance_mm_average = 0;
+ }
+ 
 
 
   delay(1000);

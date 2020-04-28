@@ -81,14 +81,6 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
     logging.error("Listen Failed")
     return 1
 
-  # Check whether Signed Update is used.
-  if ( os.path.isfile(filename + '.signed') ):
-    filename = filename + '.signed'
-    file_check_msg = 'Detected Signed Update. %s will be uploaded instead.' % (filename)
-    sys.stderr.write(file_check_msg + '\n')
-    sys.stderr.flush()
-    logging.info(file_check_msg)
-  
   content_size = os.path.getsize(filename)
   f = open(filename,'rb')
   file_md5 = hashlib.md5(f.read()).hexdigest()
@@ -97,16 +89,35 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
   message = '%d %d %d %s\n' % (command, localPort, content_size, file_md5)
 
   # Wait for a connection
-  logging.info('Sending invitation to: %s', remoteAddr)
-  sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-  remote_address = (remoteAddr, int(remotePort))
-  sent = sock2.sendto(message.encode(), remote_address)
-  sock2.settimeout(10)
-  try:
-    data = sock2.recv(128).decode()
-  except:
-    logging.error('No Answer')
-    sock2.close()
+  inv_trys = 0
+  data = ''
+  msg = 'Sending invitation to %s ' % (remoteAddr)
+  sys.stderr.write(msg)
+  sys.stderr.flush()
+  while (inv_trys < 10):
+    inv_trys += 1
+    sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    remote_address = (remoteAddr, int(remotePort))
+    try:
+      sent = sock2.sendto(message.encode(), remote_address)
+    except:
+      sys.stderr.write('failed\n')
+      sys.stderr.flush()
+      sock2.close()
+      logging.error('Host %s Not Found', remoteAddr)
+      return 1
+    sock2.settimeout(TIMEOUT)
+    try:
+      data = sock2.recv(37).decode()
+      break;
+    except:
+      sys.stderr.write('.')
+      sys.stderr.flush()
+      sock2.close()
+  sys.stderr.write('\n')
+  sys.stderr.flush()
+  if (inv_trys == 10):
+    logging.error('No response from the ESP')
     return 1
   if (data != "OK"):
     if(data.startswith('AUTH')):
@@ -151,9 +162,6 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
     logging.error('No response from device')
     sock.close()
     return 1
-
-  received_ok = False
-
   try:
     f = open(filename, "rb")
     if (PROGRESS):
@@ -163,16 +171,15 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
       sys.stderr.flush()
     offset = 0
     while True:
-      chunk = f.read(1460)
+      chunk = f.read(1024)
       if not chunk: break
       offset += len(chunk)
       update_progress(offset/float(content_size))
       connection.settimeout(10)
       try:
         connection.sendall(chunk)
-        if connection.recv(32).decode().find('O') >= 0:
-          # connection will receive only digits or 'OK'
-          received_ok = True;
+        res = connection.recv(10)
+        lastResponseContainedOK = 'OK' in res.decode()
       except:
         sys.stderr.write('\n')
         logging.error('Error Uploading')
@@ -181,27 +188,36 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
         sock.close()
         return 1
 
-    sys.stderr.write('\n')
-    logging.info('Waiting for result...')
-    # libraries/ArduinoOTA/ArduinoOTA.cpp L311 L320
-    # only sends digits or 'OK'. We must not not close
-    # the connection before receiving the 'O' of 'OK'
-    try:
-      connection.settimeout(60)
-      while not received_ok:
-        if connection.recv(32).decode().find('O') >= 0:
-          # connection will receive only digits or 'OK'
-          received_ok = True;
-      logging.info('Result: OK')
+    if lastResponseContainedOK:
+      logging.info('Success')
       connection.close()
       f.close()
       sock.close()
-      if (data != "OK"):
-        sys.stderr.write('\n')
-        logging.error('%s', data)
-        return 1;
       return 0
-    except:
+
+    sys.stderr.write('\n')
+    logging.info('Waiting for result...')
+    try:
+      count = 0
+      while True:
+        count=count+1
+        connection.settimeout(60)
+        data = connection.recv(32).decode()
+        logging.info('Result: %s' ,data)
+
+        if "OK" in data:
+          logging.info('Success')
+          connection.close()
+          f.close()
+          sock.close()
+          return 0;
+        if count == 5:
+          logging.error('Error response from device')
+          connection.close()
+          f.close()
+          sock.close()
+          return 1
+    except e:
       logging.error('No Result!')
       connection.close()
       f.close()
@@ -220,7 +236,7 @@ def serve(remoteAddr, localAddr, remotePort, localPort, password, filename, comm
 def parser(unparsed_args):
   parser = optparse.OptionParser(
     usage = "%prog [options]",
-    description = "Transmit image over the air to the esp8266 module with OTA support."
+    description = "Transmit image over the air to the esp32 module with OTA support."
   )
 
   # destination ip and port
@@ -228,7 +244,7 @@ def parser(unparsed_args):
   group.add_option("-i", "--ip",
     dest = "esp_ip",
     action = "store",
-    help = "ESP8266 IP Address.",
+    help = "ESP32 IP Address.",
     default = False
   )
   group.add_option("-I", "--host_ip",
@@ -240,8 +256,8 @@ def parser(unparsed_args):
   group.add_option("-p", "--port",
     dest = "esp_port",
     type = "int",
-    help = "ESP8266 ota Port. Default 8266",
-    default = 8266
+    help = "ESP32 ota Port. Default 3232",
+    default = 3232
   )
   group.add_option("-P", "--host_port",
     dest = "host_port",
@@ -291,6 +307,12 @@ def parser(unparsed_args):
     action = "store_true",
     default = False
   )
+  group.add_option("-t", "--timeout",
+    dest = "timeout",
+    type = "int",
+    help = "Timeout to wait for the ESP32 to accept invitation",
+    default = 10
+  )
   parser.add_option_group(group)
 
   (options, args) = parser.parse_args(unparsed_args)
@@ -300,33 +322,28 @@ def parser(unparsed_args):
 
 
 def main(args):
-  # get options
   options = parser(args)
-
-  # adapt log level
   loglevel = logging.WARNING
   if (options.debug):
     loglevel = logging.DEBUG
-  # end if
 
-  # logging
   logging.basicConfig(level = loglevel, format = '%(asctime)-8s [%(levelname)s]: %(message)s', datefmt = '%H:%M:%S')
-
   logging.debug("Options: %s", str(options))
 
   # check options
   global PROGRESS
   PROGRESS = options.progress
+
+  global TIMEOUT
+  TIMEOUT = options.timeout
+  
   if (not options.esp_ip or not options.image):
     logging.critical("Not enough arguments.")
-
     return 1
-  # end if
 
   command = FLASH
   if (options.spiffs):
     command = SPIFFS
-  # end if
 
   return serve(options.esp_ip, options.host_ip, options.esp_port, options.host_port, options.auth, options.image, command)
 # end main
@@ -334,4 +351,3 @@ def main(args):
 
 if __name__ == '__main__':
   sys.exit(main(sys.argv))
-# end if
