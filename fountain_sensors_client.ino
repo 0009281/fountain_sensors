@@ -40,6 +40,12 @@ uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
 uint8_t i;
 bool loadEepromFailed = false, emergency_flooding = false;
 WiFiUDP udp;
+const char *  ip_crestron       = "192.168.88.2"; 
+const int crestron_esp32_port        = 1111;    // the destination port
+
+const char *  asterisk_ip       = "192.168.88.2"; 
+const int     asterisk_port        = 5038;    // the destination port
+
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
@@ -252,6 +258,18 @@ void loop() {
       pCharacteristic->notify();
       emergency_flooding = true;
       flash_led(3);
+ 
+      WiFiClient client;
+      if (!client.connect(asterisk_ip, asterisk_port)) {
+        Serial.println("Connection to Asterisk at port 5038 failed.");
+      } else {
+        client.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
+        client.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
+        client.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
+        client.stop();
+      }
+
+ 
     } else {
       pCharacteristic->setValue(command_to_realy_din_rail_block);
       pCharacteristic->notify();
@@ -270,8 +288,6 @@ void loop() {
   }
 
 
- const char *  ip_crestron       = "192.168.88.2"; 
- const int crestron_esp32_port        = 1111;    // the destination port
 
   udp.beginPacket(ip_crestron,crestron_esp32_port);
   udp.printf("H: %0.1f% ", sht.getHumidity());
