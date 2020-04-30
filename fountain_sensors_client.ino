@@ -1,6 +1,9 @@
 #include <Wire.h>
 #include "SHTSensor.h"
 #include "wifi_details.h"
+#include <WiFi.h>
+#include <WiFiUdp.h>
+
 #include <ArduinoOTA.h>
 #include <HTTPUpdate.h>
 #include <HTTPClient.h>
@@ -36,6 +39,7 @@ unsigned long check_for_the_new_frimware_millis;
 uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
 uint8_t i;
 bool loadEepromFailed = false, emergency_flooding = false;
+WiFiUDP udp;
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
@@ -264,6 +268,18 @@ void loop() {
   } else {
     Serial.println("Error in readSample() from the SENSIRION SHT85 Sensor");
   }
+
+
+ const char *  ip_crestron       = "192.168.88.2"; 
+ const int crestron_esp32_port        = 1111;    // the destination port
+
+  udp.beginPacket(ip_crestron,crestron_esp32_port);
+  udp.printf("H: %0.1f% ", sht.getHumidity());
+  udp.printf("T: %0.1f ", sht.getTemperature());
+  udp.printf("Water level, mm: %04d ", distance_mm_to_monitor - distance_mm);
+  udp.endPacket();
+  //udp.send(sht.getHumidity(), ip_crestron, crestron_esp32_port );   // the message to send
+
 
 
  WiFiClient client = wifiServer.available();
