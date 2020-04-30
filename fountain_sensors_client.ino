@@ -54,7 +54,7 @@ uint32_t value = 0;
 //std::string value1="                                              ";
 std::string command_to_realy_din_rail_block="Disable Fountain";
 
-WiFiServer wifiServer(80);
+WiFiServer wifiServer(1111);
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -139,7 +139,7 @@ void setup() {
   if (MDNS.begin("esp32_fountain")) {
     MDNS.setInstanceName("ESP32 Fountain Sensor Board");
     Serial.println("mDNS responder started");
-    MDNS.addService("http", "tcp", 1111);
+    MDNS.addService("Control","tcp", 1111);
   }
   else Serial.println("Error setting up MDNS responder!");
 
@@ -259,14 +259,14 @@ void loop() {
       emergency_flooding = true;
       flash_led(3);
  
-      WiFiClient client;
-      if (!client.connect(asterisk_ip, asterisk_port)) {
+      WiFiClient client_asterisk;
+      if (!client_asterisk.connect(asterisk_ip, asterisk_port)) {
         Serial.println("Connection to Asterisk at port 5038 failed.");
       } else {
-        client.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
-        client.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
-        client.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
-        client.stop();
+        client_asterisk.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
+        client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
+        client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
+        client_asterisk.stop();
       }
 
  
