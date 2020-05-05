@@ -3,6 +3,7 @@
 #include "wifi_details.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include "AsyncUDP.h"
 
 #include <ArduinoOTA.h>
 #include <HTTPUpdate.h>
@@ -39,7 +40,8 @@ unsigned long check_for_the_new_frimware_millis;
 uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
 uint8_t i;
 bool loadEepromFailed = false, emergency_flooding = false;
-WiFiUDP udp;
+WiFiUDP udp_client;
+AsyncUDP udp_server;
 const char *  ip_crestron       = "192.168.88.2"; 
 const int crestron_esp32_port        = 1111;    // the destination port
 
@@ -53,8 +55,10 @@ bool deviceConnected = false;
 uint32_t value = 0;
 //std::string value1="                                              ";
 std::string command_to_realy_din_rail_block="Disable Fountain";
+String command_to_run;
 
-WiFiServer wifiServer(1111);
+
+//WiFiServer wifiServer(1111);
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -170,7 +174,38 @@ void setup() {
   });
 
   ArduinoOTA.begin();
-  wifiServer.begin();
+  //wifiServer.begin();
+    if(udp_server.listen(1111)) {
+        Serial.print("UDP Listening on IP: ");
+        Serial.println(WiFi.localIP());
+        udp_server.onPacket([](AsyncUDPPacket packet) {
+            Serial.print("UDP Packet Type: ");
+            Serial.print(packet.isBroadcast()?"Broadcast":packet.isMulticast()?"Multicast":"Unicast");
+            Serial.print(", From: ");
+            Serial.print(packet.remoteIP());
+            Serial.print(":");
+            Serial.print(packet.remotePort());
+            Serial.print(", To: ");
+            Serial.print(packet.localIP());
+            Serial.print(":");
+            Serial.print(packet.localPort());
+            Serial.print(", Length: ");
+            Serial.print(packet.length());
+            Serial.print(", Data: ");
+            Serial.write(packet.data(), packet.length());
+            Serial.println();
+            //reply to the client
+            packet.printf("Got %u bytes of data", packet.length());
+            //for (uint8_t i=0; i<packet.length();i++) { command_to_run += (char *)packet.data();
+              command_to_run = (char *)packet.data();
+              Serial.print("Command_to_run: ");
+              Serial.println(command_to_run );
+            //}
+        });
+    }
+
+
+  
 
   Wire.begin(SDA_pin, SCL_pin);
 
@@ -288,80 +323,53 @@ void loop() {
   }
 
 
+  //Ssending status data to the Crsteron system
+  udp_client.beginPacket(ip_crestron,crestron_esp32_port);
+  udp_client.printf("|%04d mm", distance_mm_to_monitor - distance_mm);
+  udp_client.printf("|%0.1f C", sht.getTemperature());
+  udp_client.printf("|%0.1f %|", sht.getHumidity());
+  udp_client.endPacket();
+  
 
-  udp.beginPacket(ip_crestron,crestron_esp32_port);
-  udp.printf("H: %0.1f% ", sht.getHumidity());
-  udp.printf("T: %0.1f ", sht.getTemperature());
-  udp.printf("Water level, mm: %04d ", distance_mm_to_monitor - distance_mm);
-  udp.endPacket();
-  //udp.send(sht.getHumidity(), ip_crestron, crestron_esp32_port );   // the message to send
-
-
-
- WiFiClient client = wifiServer.available();
- 
-  if (client) {
-     String command_to_run;
-     while (client.connected()) {
- 
-      while (client.available()>0) {
-        char c = client.read(); 
-        command_to_run += c;
-      }
-      delay(10);
-    }
- 
-    client.stop();
-    Serial.println("Client disconnected");
-    Serial.print("Command to execute: ");
-    //Serial.println(command_to_run);
-    if (command_to_run=="Enable Fountain") {
-      Serial.println("Enable Fountain");
-      command_to_realy_din_rail_block = "Enable Fountain";
-    
-   //     pCharacteristic->setValue("Enable Fountain\0");
-     //   pCharacteristic->notify();
-      //}
-    }
-    else if (command_to_run=="Disable Fountain") {
-      Serial.println("Disable Fountain");
-      command_to_realy_din_rail_block = "Disable Fountain";
-    }
-    else if (command_to_run=="Enable Garland") {
-      Serial.println("Enable Garland");
-      digitalWrite(GARLAND_PIN, HIGH);
-    }
-    else if (command_to_run=="Disable Garland") {
-      Serial.println("Disable Garland");
-      digitalWrite(GARLAND_PIN, LOW);
-    }
-    else {
-      Serial.println("Unknown command");
-    }
-  } //if client at port 1111
+  if (command_to_run=="Enable Fountain") {
+    Serial.println("Enable Fountain");
+    command_to_realy_din_rail_block = "Enable Fountain";
+  }
+  else if (command_to_run=="Disable Fountain") {
+    Serial.println("Disable Fountain");
+    command_to_realy_din_rail_block = "Disable Fountain";
+  }
+  else if (command_to_run=="Enable Garland") {
+    Serial.println("Enable Garland");
+    digitalWrite(GARLAND_PIN, HIGH);
+  }
+  else if (command_to_run=="Disable Garland") {
+    Serial.println("Disable Garland");
+    digitalWrite(GARLAND_PIN, LOW);
+  }
 
 
  //calculate average distance and save it to the EEPROM
- if (!digitalRead(BUTTON)) {
-   if (i<10) {
-     distance_mm_average += distance_mm;
-     if (i==9) { 
-      distance_mm_to_monitor = (int)(distance_mm_average / 10);
-      EEPROM.put(0, distance_mm_to_monitor);
-      EEPROM.commit();
-      delay(3000);
-      flash_led(2);
-      delay(1000);
-      Serial.print("Average distance to monitor: ");
-      Serial.println(distance_mm_to_monitor);
-     }
-     i++;
-   }
- }
- else {
-  i = 0;
-  distance_mm_average = 0;
- }
+  if (!digitalRead(BUTTON)) {
+    if (i<10) {
+      distance_mm_average += distance_mm;
+      if (i==9) { 
+        distance_mm_to_monitor = (int)(distance_mm_average / 10);
+        EEPROM.put(0, distance_mm_to_monitor);
+        EEPROM.commit();
+        delay(3000);
+        flash_led(2);
+        delay(1000);
+        Serial.print("Average distance to monitor: ");
+        Serial.println(distance_mm_to_monitor);
+      }
+      i++;
+    }
+  }
+  else {
+    i = 0;
+    distance_mm_average = 0;
+  }
  
 
 
