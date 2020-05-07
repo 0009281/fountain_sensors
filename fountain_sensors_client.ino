@@ -30,16 +30,14 @@
 #define BUTTON             0 //onboard button
 #define LED_PIN            2 //onboard led
 #define GARLAND_PIN        4 //external relay control pin
-#define EEPROM_SIZE        2
 #define SKETCH_VERSION "1.0.33"
 
 SHTSensor sht(SHTSensor::SHT3X);
-
 unsigned int duration, distance;
 unsigned long check_for_the_new_frimware_millis;
 uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
 uint8_t i;
-bool loadEepromFailed = false, emergency_flooding = false;
+bool loadEepromFailed = false, emergency_flooding = false, was_notified = false;
 WiFiUDP udp_client;
 AsyncUDP udp_server;
 const char *  ip_crestron       = "192.168.88.2"; 
@@ -57,6 +55,14 @@ uint32_t value = 0;
 std::string command_to_realy_din_rail_block="Disable Fountain";
 String command_to_run;
 
+struct SetupData {
+  uint16_t distance_mm_to_monitor;
+  uint8_t garland_outlet_last_state;
+};
+
+SetupData eeprom_settings;
+
+#define EEPROM_SIZE        sizeof(eeprom_settings)
 
 //WiFiServer wifiServer(1111);
 
@@ -115,8 +121,8 @@ void setup() {
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(LED_PIN, OUTPUT);
   pinMode(BUTTON, INPUT);
-  pinMode(GARLAND_PIN, OUTPUT);
   digitalWrite(GARLAND_PIN, LOW);
+  pinMode(GARLAND_PIN, OUTPUT);
   //check for EEPROM corruption
   if ((!EEPROM.begin(EEPROM_SIZE))) {
     Serial.println("Failed to initialise EEPROM"); 
@@ -124,13 +130,13 @@ void setup() {
   }
   else {
     Serial.println("OK to initialise EEPROM"); 
-    EEPROM.get(0, distance_mm_to_monitor);
+    EEPROM.get(0, eeprom_settings);
+    distance_mm_to_monitor = eeprom_settings.distance_mm_to_monitor ;
     if (isnan(distance_mm_to_monitor)) loadEepromFailed = true;
     Serial.print("Average distance for monitoring loaded from EEPROM is: ");
     Serial.println(distance_mm_to_monitor);
   }
-
-  
+  digitalWrite(GARLAND_PIN, eeprom_settings.garland_outlet_last_state);  
   // START WIFI INIT  
   // delete old config
   WiFi.disconnect(true);
@@ -293,15 +299,18 @@ void loop() {
       pCharacteristic->notify();
       emergency_flooding = true;
       flash_led(3);
- 
       WiFiClient client_asterisk;
-      if (!client_asterisk.connect(asterisk_ip, asterisk_port)) {
-        Serial.println("Connection to Asterisk at port 5038 failed.");
-      } else {
-        client_asterisk.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
-        client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
-        client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan\n\n");
-        client_asterisk.stop();
+      if (!was_notified) {
+        if (!client_asterisk.connect(asterisk_ip, asterisk_port)) {
+          Serial.println("Connection to Asterisk at port 5038 failed");
+        } else {
+          client_asterisk.setNoDelay(true); //to be sure that all data below have been sent to the Asterisk server
+          client_asterisk.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
+          client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+          client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+          client_asterisk.stop();
+          was_notified = true;
+        }
       }
 
  
@@ -309,6 +318,7 @@ void loop() {
       pCharacteristic->setValue(command_to_realy_din_rail_block);
       pCharacteristic->notify();
       emergency_flooding = false;
+      was_notified = false;
       flash_led(1);
     }
   }
@@ -342,10 +352,20 @@ void loop() {
   else if (command_to_run=="Enable Garland") {
     Serial.println("Enable Garland");
     digitalWrite(GARLAND_PIN, HIGH);
+    if (!eeprom_settings.garland_outlet_last_state) {
+      eeprom_settings.garland_outlet_last_state = 1;
+      EEPROM.put(0, eeprom_settings); 
+      EEPROM.commit();
+    }
   }
   else if (command_to_run=="Disable Garland") {
     Serial.println("Disable Garland");
     digitalWrite(GARLAND_PIN, LOW);
+    if (eeprom_settings.garland_outlet_last_state) {      
+      eeprom_settings.garland_outlet_last_state = 0;
+      EEPROM.put(0, eeprom_settings); 
+      EEPROM.commit();
+    }
   }
 
 
@@ -355,7 +375,8 @@ void loop() {
       distance_mm_average += distance_mm;
       if (i==9) { 
         distance_mm_to_monitor = (int)(distance_mm_average / 10);
-        EEPROM.put(0, distance_mm_to_monitor);
+        eeprom_settings.distance_mm_to_monitor = distance_mm_to_monitor;
+        EEPROM.put(0, eeprom_settings);
         EEPROM.commit();
         delay(3000);
         flash_led(2);
