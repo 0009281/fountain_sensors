@@ -301,7 +301,7 @@ void loop() {
       flash_led(3);
       WiFiClient client_asterisk;
       if (!was_notified) {
-        if (!client_asterisk.connect(asterisk_ip, asterisk_port)) {
+        if (!client_asterisk.connect(asterisk_ip, asterisk_port, 2000)) {
           Serial.println("Connection to Asterisk at port 5038 failed");
         } else {
           client_asterisk.setNoDelay(true); //to be sure that all data below have been sent to the Asterisk server
