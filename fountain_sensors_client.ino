@@ -94,23 +94,20 @@ void flash_led(uint8_t number_times)
   }
 }
 
-/*
+
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       std::string value = pCharacteristic->getValue();
-      digitalWrite(LED_PIN, !digitalRead(LED_PIN));      
+      //digitalWrite(LED_PIN, !digitalRead(LED_PIN));      
       if (value.length() > 0) {
-        Serial.println("*********");
-        Serial.print("New value: ");
-        for (int i = 0; i < value.length(); i++)
-          Serial.print(value[i]);
-          command_to_realy_din_rail_block=value;
-        Serial.println();
-        Serial.println("*********");
+        Serial.print("BLECharacteristicCallbacks.onWrite, new value: ");
+        for (int i = 0; i < value.length(); i++) Serial.print(value[i]);
+        command_to_run = value.c_str();
+        Serial.println("");
       }
     }
 };
-*/
+
 
 
 void setup() {
@@ -180,6 +177,7 @@ void setup() {
   });
 
   ArduinoOTA.begin();
+
   //wifiServer.begin();
     if(udp_server.listen(1111)) {
         Serial.print("UDP Listening on IP: ");
@@ -242,7 +240,7 @@ void setup() {
                       BLECharacteristic::PROPERTY_INDICATE
                     );
 
-//  pCharacteristic->setCallbacks(new MyCallbacks());
+  pCharacteristic->setCallbacks(new MyCallbacks());
   pCharacteristic->setValue("Disable Fountain");
 
 
@@ -291,7 +289,8 @@ void loop() {
   Serial.println(distance_mm );
 
   if(deviceConnected) {
-
+    Serial.print("Notification to the BLE client: ");
+    Serial.println(command_to_realy_din_rail_block.c_str());
     if (distance_mm_to_monitor - distance_mm > 30) {
       Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
       command_to_realy_din_rail_block = "Disable Fountain";
@@ -344,10 +343,12 @@ void loop() {
   if (command_to_run=="Enable Fountain") {
     Serial.println("Enable Fountain");
     command_to_realy_din_rail_block = "Enable Fountain";
+    command_to_run="";
   }
   else if (command_to_run=="Disable Fountain") {
     Serial.println("Disable Fountain");
     command_to_realy_din_rail_block = "Disable Fountain";
+    command_to_run="";
   }
   else if (command_to_run=="Enable Garland") {
     Serial.println("Enable Garland");
@@ -357,6 +358,7 @@ void loop() {
       EEPROM.put(0, eeprom_settings); 
       EEPROM.commit();
     }
+    command_to_run="";
   }
   else if (command_to_run=="Disable Garland") {
     Serial.println("Disable Garland");
@@ -366,6 +368,7 @@ void loop() {
       EEPROM.put(0, eeprom_settings); 
       EEPROM.commit();
     }
+    command_to_run="";
   }
 
 
