@@ -32,6 +32,8 @@
 #define GARLAND_PIN        4 //external relay control pin
 #define SKETCH_VERSION "1.0.33"
 
+#define FLOOD_LEVEL 25 //; if the water level is over 25 mm then it should be then we decide that is flooding
+
 SHTSensor sht(SHTSensor::SHT3X);
 unsigned int duration, distance;
 unsigned long check_for_the_new_frimware_millis;
@@ -50,7 +52,7 @@ const int     asterisk_port        = 5038;    // the destination port
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristic = NULL;
 bool deviceConnected = false;
-uint32_t value = 0;
+uint32_t value = 0 ;
 //std::string value1="                                              ";
 std::string command_to_realy_din_rail_block="Disable Fountain";
 String command_to_run;
@@ -224,6 +226,7 @@ void setup() {
 
  // Create the BLE Device
   BLEDevice::init("ESP32");
+  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
   // Create the BLE Server
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -291,7 +294,7 @@ void loop() {
   if(deviceConnected) {
     Serial.print("Notification to the BLE client: ");
     Serial.println(command_to_realy_din_rail_block.c_str());
-    if (distance_mm_to_monitor - distance_mm > 30) {
+    if (distance_mm_to_monitor - distance_mm > FLOOD_LEVEL) {
       Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
       command_to_realy_din_rail_block = "Disable Fountain";
       pCharacteristic->setValue(command_to_realy_din_rail_block);
@@ -310,16 +313,21 @@ void loop() {
           client_asterisk.stop();
           was_notified = true;
         }
-      }
-
- 
-    } else {
+      } 
+    } 
+ //   else if ( (distance_mm_to_monitor - distance_mm < 25) && emergency_flooding)  { //hysteresis = 5 mm
+      //emergency_flooding = false;
+    //}
+    else { //if (!emergency_flooding) {
       pCharacteristic->setValue(command_to_realy_din_rail_block);
       pCharacteristic->notify();
       emergency_flooding = false;
       was_notified = false;
       flash_led(1);
     }
+  
+  
+  
   }
   
   if (sht.readSample()) {
