@@ -78,6 +78,15 @@ class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       digitalWrite(LED_PIN, LOW);
       deviceConnected = true;
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL0);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL1);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL2);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL3);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL4);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL5);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL6);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL7);
+      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL8);
     };
 
     void onDisconnect(BLEServer* pServer) {
@@ -225,8 +234,7 @@ void setup() {
   
 
  // Create the BLE Device
-  BLEDevice::init("ESP32");
-  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
+  BLEDevice::init("ESP32 Sensor Module");
   // Create the BLE Server
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -261,10 +269,10 @@ void setup() {
   pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
+  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
+  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
   Serial.println("Waiting a client connection to notify...");
   digitalWrite(LED_PIN, HIGH);
-
-
 }
 
 void loop() {
@@ -290,7 +298,6 @@ void loop() {
   //Serial.println(NoBlind_UltrasonicConvert(duration, US_ROUNDTRIP_CM)); // Convert uS to centimeters.);
   distance_mm = (int)(duration + 5.7 / 2)/5.7;
   Serial.println(distance_mm );
-
   if(deviceConnected) {
     Serial.print("Notification to the BLE client: ");
     Serial.println(command_to_realy_din_rail_block.c_str());
