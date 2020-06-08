@@ -42,10 +42,10 @@ uint8_t i;
 bool loadEepromFailed = false, emergency_flooding = false, was_notified = false;
 WiFiUDP udp_client;
 AsyncUDP udp_server;
-const char *  ip_crestron       = "192.168.88.2"; 
+const char *  ip_crestron       = "192.168.0.5"; 
 const int crestron_esp32_port        = 1111;    // the destination port
 
-const char *  asterisk_ip       = "192.168.88.2"; 
+const char *  asterisk_ip       = "192.168.0.7"; 
 const int     asterisk_port        = 5038;    // the destination port
 
 
@@ -210,12 +210,14 @@ void setup() {
             Serial.write(packet.data(), packet.length());
             Serial.println();
             //reply to the client
-            packet.printf("Got %u bytes of data", packet.length());
-            //for (uint8_t i=0; i<packet.length();i++) { command_to_run += (char *)packet.data();
-              command_to_run = (char *)packet.data();
-              Serial.print("Command_to_run: ");
-              Serial.println(command_to_run );
+            packet.printf("Got %u bytes of data: ", packet.length());
+            command_to_run="";
+            for (uint8_t i=0; i<packet.length();i++) command_to_run += (char)packet.data()[i];
+              //command_to_run = (char *)packet.data();
+            Serial.print("Command_to_run: ");
+            Serial.println(command_to_run );
             //}
+            packet.print(command_to_run);
         });
     }
 
@@ -310,13 +312,14 @@ void loop() {
       flash_led(3);
       WiFiClient client_asterisk;
       if (!was_notified) {
-        if (!client_asterisk.connect(asterisk_ip, asterisk_port, 2000)) {
+        if (!client_asterisk.connect(asterisk_ip, asterisk_port)) {
           Serial.println("Connection to Asterisk at port 5038 failed");
         } else {
           client_asterisk.setNoDelay(true); //to be sure that all data below have been sent to the Asterisk server
-          client_asterisk.print("Action: Login\nUsername: admin\nSecret: 56kil1234567!@\n\n");
-          client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
-          client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+          client_asterisk.print("Action: login\nUsername: max0\nSecret: 56kil1234567!@\n\n");
+          client_asterisk.print("Action: Originate\nChannel: SIP/000\nContext: fountain-warning\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+ //         client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+//          client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
           client_asterisk.stop();
           was_notified = true;
         }
@@ -351,7 +354,7 @@ void loop() {
   udp_client.beginPacket(ip_crestron,crestron_esp32_port);
   udp_client.printf("|%04d mm", distance_mm_to_monitor - distance_mm);
   udp_client.printf("|%0.1f C", sht.getTemperature());
-  udp_client.printf("|%0.1f %|", sht.getHumidity());
+  udp_client.printf("|%0.1f %%|", sht.getHumidity());
   udp_client.endPacket();
   
 
