@@ -43,15 +43,15 @@ bool loadEepromFailed = false, emergency_flooding = false, was_notified = false;
 WiFiUDP udp_client;
 AsyncUDP udp_server;
 const char *  ip_crestron       = "192.168.0.5"; 
+const char *  ip_protection_unit   = "192.168.88.2"; 
 const int crestron_esp32_port        = 1111;    // the destination port
+const int ip_protection_unit_port        = 1111;    // the destination port
 
 const char *  asterisk_ip       = "192.168.0.7"; 
 const int     asterisk_port        = 5038;    // the destination port
 
 
-BLEServer* pServer = NULL;
-BLECharacteristic* pCharacteristic = NULL;
-bool deviceConnected = false;
+
 uint32_t value = 0 ;
 //std::string value1="                                              ";
 std::string command_to_realy_din_rail_block="Disable Fountain";
@@ -66,34 +66,6 @@ SetupData eeprom_settings;
 
 #define EEPROM_SIZE        sizeof(eeprom_settings)
 
-//WiFiServer wifiServer(1111);
-
-// See the following for generating UUIDs:
-// https://www.uuidgenerator.net/
-
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      digitalWrite(LED_PIN, LOW);
-      deviceConnected = true;
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL0);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL1);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL2);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL3);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL4);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL5);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL6);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL7);
-      BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_CONN_HDL8);
-    };
-
-    void onDisconnect(BLEServer* pServer) {
-      digitalWrite(LED_PIN, HIGH);
-      deviceConnected = false;
-    }
-};
 
 void flash_led(uint8_t number_times)
 {
@@ -106,18 +78,16 @@ void flash_led(uint8_t number_times)
 }
 
 
-class MyCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      std::string value = pCharacteristic->getValue();
-      //digitalWrite(LED_PIN, !digitalRead(LED_PIN));      
-      if (value.length() > 0) {
-        Serial.print("BLECharacteristicCallbacks.onWrite, new value: ");
-        for (int i = 0; i < value.length(); i++) Serial.print(value[i]);
-        command_to_run = value.c_str();
-        Serial.println("");
-      }
-    }
-};
+void notify_protection_module(std::string *data)
+{
+
+  udp_client.beginPacket(ip_protection_unit,ip_protection_unit_port);
+  udp_client.printf("%s", data->c_str());
+  udp_client.endPacket();
+
+
+  
+}
 
 
 
@@ -233,48 +203,9 @@ void setup() {
   }
   sht.setAccuracy(SHTSensor::SHT_ACCURACY_MEDIUM); // only supported by SHT3x
 
-  
-
- // Create the BLE Device
-  BLEDevice::init("ESP32 Sensor Module");
-  // Create the BLE Server
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  // Create the BLE Service
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-
-  // Create a BLE Characteristic
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ   |
-                      BLECharacteristic::PROPERTY_WRITE  |
-                      BLECharacteristic::PROPERTY_NOTIFY |
-                      BLECharacteristic::PROPERTY_INDICATE
-                    );
-
-  pCharacteristic->setCallbacks(new MyCallbacks());
-  pCharacteristic->setValue("Disable Fountain");
 
 
-  // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
-  // Create a BLE Descriptor
-  pCharacteristic->addDescriptor(new BLE2902());
-
-  // Start the service
-  pService->start();
-
-  // Start advertising
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_DEFAULT);
-  BLEDevice::setPower(ESP_PWR_LVL_P9, ESP_BLE_PWR_TYPE_ADV);
-  Serial.println("Waiting a client connection to notify...");
-  digitalWrite(LED_PIN, HIGH);
+  digitalWrite(LED_PIN, LOW);
 }
 
 void loop() {
@@ -306,8 +237,7 @@ void loop() {
     if (distance_mm_to_monitor - distance_mm > FLOOD_LEVEL) {
       Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
       command_to_realy_din_rail_block = "Disable Fountain";
-      pCharacteristic->setValue(command_to_realy_din_rail_block);
-      pCharacteristic->notify();
+      notify_protection_module(&command_to_realy_din_rail_block);
       emergency_flooding = true;
       flash_led(3);
       WiFiClient client_asterisk;
@@ -329,15 +259,13 @@ void loop() {
       //emergency_flooding = false;
     //}
     else { //if (!emergency_flooding) {
-      pCharacteristic->setValue(command_to_realy_din_rail_block);
-      pCharacteristic->notify();
+      notify_protection_module(&command_to_realy_din_rail_block);
       emergency_flooding = false;
       was_notified = false;
       flash_led(1);
     }
   
-  
-  
+   
   }
   
   if (sht.readSample()) {

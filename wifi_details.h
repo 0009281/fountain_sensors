@@ -2,6 +2,7 @@
 
 const char* ssid = "kil";
 const char* password = "56kil1234567!@";
+bool deviceConnected = false;
 
 void WiFiEvent(WiFiEvent_t event)
 {
@@ -25,6 +26,7 @@ void WiFiEvent(WiFiEvent_t event)
             break;
         case SYSTEM_EVENT_STA_DISCONNECTED:
             Serial.println("Disconnected from WiFi access point");
+            deviceConnected = false;
             WiFi.reconnect();
             break;
         case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
@@ -32,6 +34,7 @@ void WiFiEvent(WiFiEvent_t event)
             break;
         case SYSTEM_EVENT_STA_GOT_IP:
             Serial.print("Obtained IP address: ");
+            deviceConnected = true;
             Serial.println(WiFi.localIP());
             break;
         case SYSTEM_EVENT_STA_LOST_IP:
