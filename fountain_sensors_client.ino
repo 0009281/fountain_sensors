@@ -32,13 +32,14 @@
 #define GARLAND_PIN        4 //external relay control pin
 #define SKETCH_VERSION "1.0.33"
 
-#define FLOOD_LEVEL 25 //; if the water level is over 25 mm then it should be then we decide that is flooding
+#define FLOOD_LEVEL 30 //; if the water level is over 30 mm then it should be then we decide that is flooding
 
+IPAddress esp32_fountain_basement_ip;
 SHTSensor sht(SHTSensor::SHT3X);
 unsigned int duration, distance;
-unsigned long check_for_the_new_frimware_millis;
+//unsigned long check_for_the_new_frimware_millis;
 uint16_t distance_mm, distance_mm_average, distance_mm_to_monitor;
-uint8_t i;
+uint8_t mesurement_count;
 bool loadEepromFailed = false, emergency_flooding = false, was_notified = false;
 WiFiUDP udp_client;
 AsyncUDP udp_server;
@@ -50,12 +51,8 @@ const int ip_protection_unit_port        = 1111;    // the destination port
 const char *  asterisk_ip       = "192.168.0.7"; 
 const int     asterisk_port        = 5038;    // the destination port
 
-
-
-uint32_t value = 0 ;
-//std::string value1="                                              ";
 std::string command_to_realy_din_rail_block="Disable Fountain";
-String command_to_run;
+String command_to_run, tmp1;
 
 struct SetupData {
   uint16_t distance_mm_to_monitor;
@@ -80,13 +77,13 @@ void flash_led(uint8_t number_times)
 
 void notify_protection_module(std::string *data)
 {
-
-  udp_client.beginPacket(ip_protection_unit,ip_protection_unit_port);
-  udp_client.printf("%s", data->c_str());
-  udp_client.endPacket();
-
-
-  
+  if (esp32_fountain_basement_ip.toString() != "0.0.0.0") {
+    Serial.print("IP address of the basement node: ");
+    Serial.println(esp32_fountain_basement_ip.toString());
+    udp_client.beginPacket(esp32_fountain_basement_ip, 1111);
+    udp_client.printf("%s", data->c_str());
+    udp_client.endPacket();
+  }
 }
 
 
@@ -123,11 +120,13 @@ void setup() {
   WiFi.begin(ssid, password);
   WiFi.setAutoReconnect(true);
   Serial.println("Wait for WiFi... ");
+
   //start Bonjour (mDNS) responder
-  if (MDNS.begin("esp32_fountain")) {
+  if (MDNS.begin("esp32")) {
     MDNS.setInstanceName("ESP32 Fountain Sensor Board");
     Serial.println("mDNS responder started");
-    MDNS.addService("Control","tcp", 1111);
+    MDNS.addService("ESP32_fountain_control","tcp", 1111);
+    MDNS.disableArduino();
   }
   else Serial.println("Error setting up MDNS responder!");
 
@@ -180,14 +179,19 @@ void setup() {
             Serial.write(packet.data(), packet.length());
             Serial.println();
             //reply to the client
-            packet.printf("Got %u bytes of data: ", packet.length());
-            command_to_run="";
-            for (uint8_t i=0; i<packet.length();i++) command_to_run += (char)packet.data()[i];
-              //command_to_run = (char *)packet.data();
-            Serial.print("Command_to_run: ");
-            Serial.println(command_to_run );
-            //}
-            packet.print(command_to_run);
+            //packet.printf("Got %u bytes of data: ", packet.length());
+            tmp1 = "";
+            for (uint8_t i=0; i<packet.length();i++) tmp1 += (char)packet.data()[i];
+
+            if ((packet.remoteIP() == esp32_fountain_basement_ip) && (tmp1 == "ACK")) 
+              flash_led(1);              
+            else {
+              command_to_run = tmp1;
+              Serial.print("Command_to_run: ");
+              Serial.println(command_to_run );
+              packet.print(command_to_run);
+            }
+            
         });
     }
 
@@ -211,7 +215,9 @@ void setup() {
 void loop() {
 
   ArduinoOTA.handle();
-
+  //use mDNS to acquire the basement node IP
+  esp32_fountain_basement_ip = MDNS.queryHost("esp32-30aea422d0e0");
+  
   // Clears the trigPin
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -232,7 +238,7 @@ void loop() {
   distance_mm = (int)(duration + 5.7 / 2)/5.7;
   Serial.println(distance_mm );
   if(deviceConnected) {
-    Serial.print("Notification to the BLE client: ");
+    Serial.print("Command to the basement node: ");
     Serial.println(command_to_realy_din_rail_block.c_str());
     if (distance_mm_to_monitor - distance_mm > FLOOD_LEVEL) {
       Serial.println("Emergency!!!!!!!!!!! Flooding!!!!!!"); // Convert uS to centimeters.);
@@ -262,7 +268,7 @@ void loop() {
       notify_protection_module(&command_to_realy_din_rail_block);
       emergency_flooding = false;
       was_notified = false;
-      flash_led(1);
+      //flash_led(1);
     }
   
    
@@ -278,7 +284,7 @@ void loop() {
   }
 
 
-  //Ssending status data to the Crsteron system
+  //Ssending status data to the Crestron system
   udp_client.beginPacket(ip_crestron,crestron_esp32_port);
   udp_client.printf("|%04d mm", distance_mm_to_monitor - distance_mm);
   udp_client.printf("|%0.1f C", sht.getTemperature());
@@ -320,9 +326,9 @@ void loop() {
 
  //calculate average distance and save it to the EEPROM
   if (!digitalRead(BUTTON)) {
-    if (i<10) {
+    if (mesurement_count<10) {
       distance_mm_average += distance_mm;
-      if (i==9) { 
+      if (mesurement_count == 9) { 
         distance_mm_to_monitor = (int)(distance_mm_average / 10);
         eeprom_settings.distance_mm_to_monitor = distance_mm_to_monitor;
         EEPROM.put(0, eeprom_settings);
@@ -333,15 +339,13 @@ void loop() {
         Serial.print("Average distance to monitor: ");
         Serial.println(distance_mm_to_monitor);
       }
-      i++;
+      mesurement_count++;
     }
   }
   else {
-    i = 0;
+    mesurement_count = 0;
     distance_mm_average = 0;
   }
  
-
-
   delay(1000);
 }

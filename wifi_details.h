@@ -1,5 +1,7 @@
 #include <WiFi.h>
 
+#define LED_PIN            2 //onboard led
+
 const char* ssid = "kil";
 const char* password = "56kil1234567!@";
 bool deviceConnected = false;
@@ -36,6 +38,9 @@ void WiFiEvent(WiFiEvent_t event)
             Serial.print("Obtained IP address: ");
             deviceConnected = true;
             Serial.println(WiFi.localIP());
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+            delay(100);
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
             break;
         case SYSTEM_EVENT_STA_LOST_IP:
             Serial.println("Lost IP address and IP address is reset to 0");
