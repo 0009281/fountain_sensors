@@ -253,8 +253,8 @@ void loop() {
         } else {
           client_asterisk.setNoDelay(true); //to be sure that all data below have been sent to the Asterisk server
           client_asterisk.print("Action: login\nUsername: max0\nSecret: 56kil1234567!@\n\n");
-          client_asterisk.print("Action: Originate\nChannel: SIP/000\nContext: fountain-warning\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
- //         client_asterisk.print("Action: Originate\nChannel: PjSIP/100\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+//          client_asterisk.print("Action: Originate\nChannel: SIP/000\nContext: fountain-warning\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
+          client_asterisk.print("Action: Originate\nChannel: SIP/100\nContext: fountain-warning\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
 //          client_asterisk.print("Action: Originate\nChannel: PjSIP/103\nContext: fountain-flood\nExten: s\nPriority: 1\nCallerid: Fontan !!!\n\n");
           client_asterisk.stop();
           was_notified = true;
@@ -315,6 +315,16 @@ void loop() {
   else if (command_to_run=="Disable Garland") {
     Serial.println("Disable Garland");
     digitalWrite(GARLAND_PIN, LOW);
+    if (eeprom_settings.garland_outlet_last_state) {      
+      eeprom_settings.garland_outlet_last_state = 0;
+      EEPROM.put(0, eeprom_settings); 
+      EEPROM.commit();
+    }
+    command_to_run="";
+  }
+  else if (command_to_run=="Toggle Garland") {
+    Serial.println("Toggle Garland");
+    digitalWrite(GARLAND_PIN, !digitalRead(GARLAND_PIN));
     if (eeprom_settings.garland_outlet_last_state) {      
       eeprom_settings.garland_outlet_last_state = 0;
       EEPROM.put(0, eeprom_settings); 
